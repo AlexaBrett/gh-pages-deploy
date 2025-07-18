@@ -31,10 +31,25 @@ class ProgressUtil {
     this.updateProgress(description);
     
     try {
+      // Temporarily restore console for this step in case there are prompts
+      const wasRestored = !this.originalConsole;
+      this.restoreConsole();
+      
       const result = await asyncFn();
+      
+      // Re-silence console after step completion, but only if it was silenced before
+      if (!wasRestored) {
+        this.silentConsole();
+      }
+      
       this.completeStep(description);
       return result;
     } catch (error) {
+      // Re-silence console after step failure, but only if it was silenced before
+      if (!wasRestored) {
+        this.silentConsole();
+      }
+      
       this.failStep(description, error);
       throw error;
     }
@@ -86,33 +101,44 @@ class ProgressUtil {
       this.interval = null;
     }
     
-    console.log('\n🎉 Deployment complete!');
+    // Clear the current line and show success message
+    process.stdout.write('\r' + ' '.repeat(80) + '\r');
+    console.log('🎉 Deployment completed successfully!\n');
   }
 
   silentConsole() {
     if (this.debugMode) return () => {};
     
-    this.originalConsole = {
-      log: console.log,
-      error: console.error,
-      warn: console.warn,
-      info: console.info
-    };
-    
-    console.log = () => {};
-    console.error = () => {};
-    console.warn = () => {};
-    console.info = () => {};
+    // Only silence if not already silenced
+    if (!this.originalConsole) {
+      this.originalConsole = {
+        log: console.log,
+        error: console.error,
+        warn: console.warn,
+        info: console.info
+      };
+      
+      console.log = () => {};
+      console.error = () => {};
+      console.warn = () => {};
+      console.info = () => {};
+    }
     
     return () => {
-      if (this.originalConsole) {
-        console.log = this.originalConsole.log;
-        console.error = this.originalConsole.error;
-        console.warn = this.originalConsole.warn;
-        console.info = this.originalConsole.info;
-        this.originalConsole = null;
-      }
+      this.restoreConsole();
     };
+  }
+
+  restoreConsole() {
+    if (this.debugMode) return;
+    
+    if (this.originalConsole) {
+      console.log = this.originalConsole.log;
+      console.error = this.originalConsole.error;
+      console.warn = this.originalConsole.warn;
+      console.info = this.originalConsole.info;
+      this.originalConsole = null;
+    }
   }
 
   log(message) {

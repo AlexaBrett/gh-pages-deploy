@@ -99,7 +99,6 @@ class GitHubPagesDeployer {
 
   async deploy() {
     let gitDeployer = null;
-    const restoreConsole = this.progress.silentConsole();
     
     try {
       // Pre-flight checks (these still need to show output)
@@ -112,14 +111,11 @@ class GitHubPagesDeployer {
       
       // Check/setup configuration (these still need to show output for user interaction)
       if (!this.configManager.config) {
-        restoreConsole(); // Restore console for setup
         this.configManager.config = await this.configManager.setupConfig(this.enterpriseHostname, this.packageJson, this.cwd);
-        this.progress.silentConsole(); // Re-silence after setup
       } else {
         // Check if project name is set for this project
         const currentProjectName = this.configManager.getProjectName(this.cwd);
         if (!currentProjectName) {
-          restoreConsole(); // Restore console for prompts
           console.log('📛 No project name set for this repository.');
           const defaultProjectName = this.packageJson.name || path.basename(this.cwd);
           const projectName = await PromptUtil.promptUser(
@@ -128,12 +124,14 @@ class GitHubPagesDeployer {
           );
           this.configManager.saveProjectName(this.cwd, projectName);
           console.log(`📛 Project name "${projectName}" saved for this repository\n`);
-          this.progress.silentConsole(); // Re-silence after prompts
         } else {
           this.progress.log(`📛 Using project name: ${currentProjectName}`);
           this.progress.log(`📂 Using deployment repository: ${this.configManager.config.username}/${this.configManager.config.repository}`);
         }
       }
+      
+      // Now start silencing console for the main deployment process
+      const restoreConsole = this.progress.silentConsole();
       
       // Create deployers
       gitDeployer = new GitDeployer(this.configManager.config, this.packageJson, this.cwd, this.branchName, this.buildConfig, this.debugMode);
@@ -188,14 +186,18 @@ class GitHubPagesDeployer {
       
       // Show final deployment info
       if (pagesDeployer.pagesUrl) {
-        console.log(`🔗 Preview: ${pagesDeployer.pagesUrl}`);
+        console.log(`🔗 Preview URL: ${pagesDeployer.pagesUrl}`);
         console.log(`🌿 Branch: ${this.branchName}`);
+        console.log(`📊 Project: ${this.configManager.getProjectName(this.cwd)}`);
         
         if (!pagesDeployer.pagesConfigured) {
           console.log('\n⚠️  Pages configuration may need manual setup:');
           console.log(`   1. Go to: ${pagesDeployer.repoUrl.replace('/tree/', '/settings/pages')}`);
           console.log(`   2. Set source to branch: ${this.branchName}`);
         }
+        
+        console.log('\n✅ Your site should be live within a few minutes!');
+        console.log('📝 Check the repository\'s Actions tab for deployment status.');
       }
       
     } catch (error) {
