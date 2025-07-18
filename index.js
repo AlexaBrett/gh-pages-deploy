@@ -29,63 +29,18 @@ class GitHubPagesDeployer {
       next: this.findNextConfig(),
       vite: this.findViteConfig(),
       react: this.findReactConfig(),
-      webpack: this.findWebpackConfig(),
       parcel: this.findParcelConfig(),
       rollup: this.findRollupConfig(),
       generic: this.findGenericConfig()
     };
 
-    // Priority: Next.js > Vite > Create React App > Webpack > Parcel > Rollup > Generic
+    // Priority: Next.js > Vite > Create React App > Parcel > Rollup > Generic
     if (configs.next) return configs.next;
     if (configs.vite) return configs.vite;
     if (configs.react) return configs.react;
-    if (configs.webpack) return configs.webpack;
     if (configs.parcel) return configs.parcel;
     if (configs.rollup) return configs.rollup;
     return configs.generic;
-  }
-
-  findWebpackConfig() {
-    const configFiles = ['webpack.config.js', 'webpack.config.ts', 'webpack.prod.js', 'webpack.production.js'];
-    const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
-    
-    if (configFile || this.packageJson.devDependencies?.webpack) {
-      console.log(`📦 Detected Webpack project${configFile ? ` (${configFile})` : ''}`);
-      
-      const outputDir = configFile ? this.parseWebpackConfig(configFile) : 'dist';
-      
-      return {
-        framework: 'webpack',
-        buildCommand: 'npm run build',
-        outputDir: outputDir || 'dist',
-        configFile: configFile
-      };
-    }
-    return null;
-  }
-
-  parseWebpackConfig(configFile) {
-    try {
-      const configPath = path.join(this.cwd, configFile);
-      const configContent = fs.readFileSync(configPath, 'utf8');
-      
-      // Look for output.path configuration
-      const outputPathMatch = configContent.match(/output\s*:\s*{[^}]*path\s*:\s*.*?['"`]([^'"`]+)['"`]/s) ||
-                             configContent.match(/path\s*:\s*.*?['"`]([^'"`]+)['"`]/);
-      
-      if (outputPathMatch) {
-        // Extract just the directory name from the path
-        const fullPath = outputPathMatch[1];
-        const dirName = path.basename(fullPath);
-        console.log(`📁 Found custom output path: ${dirName}`);
-        return dirName;
-      }
-      
-      return 'dist';
-    } catch (error) {
-      console.log(`⚠️  Could not parse ${configFile}, using default output directory`);
-      return 'dist';
-    }
   }
 
   findParcelConfig() {
@@ -882,15 +837,28 @@ export default defineConfig({
       // Use GH_HOST environment variable for enterprise operations
       const env = { ...process.env, GH_HOST: hostname };
       
-      // Try to enable GitHub Pages via API if available
+      // Try to enable GitHub Pages for the specific branch
       try {
-        execSync(`gh api repos/${this.config.username}/${this.config.repository}/pages -X POST -f source.branch=main -f source.path=/`, {
+        // First, try to enable pages with the specific branch as source
+        execSync(`gh api repos/${this.config.username}/${this.config.repository}/pages -X POST -f source.branch=${this.branchName} -f source.path=/`, {
           cwd: this.tempDir,
           stdio: 'ignore',
           env
         });
+        console.log(`✅ GitHub Pages enabled with source branch: ${this.branchName}`);
       } catch (error) {
-        // Pages might already be enabled or API might not be available on this enterprise instance
+        // If that fails, try to update existing pages configuration
+        try {
+          execSync(`gh api repos/${this.config.username}/${this.config.repository}/pages -X PUT -f source.branch=${this.branchName} -f source.path=/`, {
+            cwd: this.tempDir,
+            stdio: 'ignore',
+            env
+          });
+          console.log(`✅ GitHub Pages source updated to branch: ${this.branchName}`);
+        } catch (updateError) {
+          console.log(`⚠️  Could not automatically configure GitHub Pages source branch`);
+          console.log(`🔧 Please manually set Pages source to branch: ${this.branchName}`);
+        }
       }
       
       // Generate enterprise-specific URLs
@@ -930,6 +898,7 @@ export default defineConfig({
       console.log(`🌿 Branch: ${this.branchName}`);
       console.log(`📦 GitHub branch: ${repoUrl}`);
       console.log('🔧 Manually enable GitHub Pages in your enterprise repository settings');
+      console.log(`🔧 Set Pages source to branch: ${this.branchName}`);
     }
   }
 
