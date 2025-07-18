@@ -164,7 +164,10 @@ class GitHubPagesDeployer {
       if (!hostname) {
         throw new Error('No enterprise hostname configured');
       }
-      execSync(`gh repo view ${username}/${repoName} --hostname ${hostname}`, { stdio: 'ignore' });
+      
+      // Use GH_HOST environment variable for enterprise operations
+      const env = { ...process.env, GH_HOST: hostname };
+      execSync(`gh repo view ${username}/${repoName}`, { stdio: 'ignore', env });
       return true;
     } catch (error) {
       return false;
@@ -178,9 +181,13 @@ class GitHubPagesDeployer {
         throw new Error('No enterprise hostname configured');
       }
       
+      // Use GH_HOST environment variable for enterprise operations
+      const env = { ...process.env, GH_HOST: hostname };
+      
       // Create the repository
-      execSync(`gh repo create ${repoName} --public --description "Auto-deployed previews from gh-pages-auto-deploy" --hostname ${hostname}`, { 
-        stdio: 'inherit'
+      execSync(`gh repo create ${repoName} --public --description "Auto-deployed previews from gh-pages-auto-deploy"`, { 
+        stdio: 'inherit',
+        env
       });
       
       // Clone it to set up initial structure
@@ -300,7 +307,10 @@ This repository is configured for GitHub Enterprise Server: ${hostname}
 
   getGitHubUsername() {
     try {
-      const result = execSync('gh api user --jq .login', { encoding: 'utf8' }).trim();
+      const hostname = this.enterpriseHostname || this.config?.hostname;
+      const env = hostname ? { ...process.env, GH_HOST: hostname } : process.env;
+      
+      const result = execSync('gh api user --jq .login', { encoding: 'utf8', env }).trim();
       return result;
     } catch (error) {
       throw new Error('Could not get GitHub username. Make sure you are authenticated with GitHub CLI.');
@@ -597,11 +607,15 @@ export default defineConfig({
         throw new Error('No enterprise hostname configured');
       }
       
+      // Use GH_HOST environment variable for enterprise operations
+      const env = { ...process.env, GH_HOST: hostname };
+      
       // Try to enable GitHub Pages via API if available
       try {
-        execSync(`gh api repos/${this.config.username}/${this.config.repository}/pages -X POST -f source.branch=main -f source.path=/ --hostname ${hostname}`, {
+        execSync(`gh api repos/${this.config.username}/${this.config.repository}/pages -X POST -f source.branch=main -f source.path=/`, {
           cwd: this.tempDir,
-          stdio: 'ignore'
+          stdio: 'ignore',
+          env
         });
       } catch (error) {
         // Pages might already be enabled or API might not be available on this enterprise instance
