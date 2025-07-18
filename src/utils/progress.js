@@ -8,6 +8,7 @@ class ProgressUtil {
     this.spinnerIndex = 0;
     this.interval = null;
     this.originalConsole = null;
+    this.isProgressActive = false;
   }
 
   startProgress(steps) {
@@ -16,6 +17,7 @@ class ProgressUtil {
     this.steps = steps;
     this.totalSteps = steps.length;
     this.currentStep = 0;
+    this.isProgressActive = true;
     
     console.log('🚀 Starting GitHub Pages deployment...\n');
     this.updateProgress();
@@ -31,36 +33,23 @@ class ProgressUtil {
     this.updateProgress(description);
     
     try {
-      // Temporarily restore console for this step in case there are prompts
-      const wasRestored = !this.originalConsole;
-      this.restoreConsole();
+      // Stop progress animation and restore console for this step
+      this.pauseProgress();
       
       const result = await asyncFn();
-      
-      // Re-silence console after step completion, but only if it was silenced before
-      if (!wasRestored) {
-        this.silentConsole();
-      }
       
       this.completeStep(description);
       return result;
     } catch (error) {
-      // Re-silence console after step failure, but only if it was silenced before
-      if (!wasRestored) {
-        this.silentConsole();
-      }
-      
       this.failStep(description, error);
       throw error;
     }
   }
 
   updateProgress(currentDescription = null) {
-    if (this.debugMode) return;
+    if (this.debugMode || !this.isProgressActive) return;
     
-    if (this.interval) {
-      clearInterval(this.interval);
-    }
+    this.stopSpinner();
     
     const description = currentDescription || (this.steps[this.currentStep - 1] || 'Processing');
     
@@ -73,22 +62,14 @@ class ProgressUtil {
   completeStep(description) {
     if (this.debugMode) return;
     
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-    
+    this.stopSpinner();
     process.stdout.write(`\r✅ ${this.currentStep}/${this.totalSteps} ${description}\n`);
   }
 
   failStep(description, error) {
     if (this.debugMode) return;
     
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-    
+    this.stopSpinner();
     process.stdout.write(`\r❌ ${this.currentStep}/${this.totalSteps} ${description} - Failed\n`);
     console.error(`Error: ${error.message}`);
   }
@@ -96,14 +77,26 @@ class ProgressUtil {
   complete() {
     if (this.debugMode) return;
     
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
+    this.stopSpinner();
+    this.isProgressActive = false;
     
     // Clear the current line and show success message
     process.stdout.write('\r' + ' '.repeat(80) + '\r');
     console.log('🎉 Deployment completed successfully!\n');
+  }
+
+  stopSpinner() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+  }
+
+  pauseProgress() {
+    if (this.debugMode) return;
+    this.stopSpinner();
+    // Clear the current progress line
+    process.stdout.write('\r' + ' '.repeat(80) + '\r');
   }
 
   silentConsole() {
@@ -131,6 +124,9 @@ class ProgressUtil {
 
   restoreConsole() {
     if (this.debugMode) return;
+    
+    // Always stop the spinner first to prevent interference
+    this.stopSpinner();
     
     if (this.originalConsole) {
       console.log = this.originalConsole.log;

@@ -99,6 +99,7 @@ class GitHubPagesDeployer {
 
   async deploy() {
     let gitDeployer = null;
+    let restoreConsole = null;
     
     try {
       // Pre-flight checks (these still need to show output)
@@ -131,7 +132,7 @@ class GitHubPagesDeployer {
       }
       
       // Now start silencing console for the main deployment process
-      const restoreConsole = this.progress.silentConsole();
+      restoreConsole = this.progress.silentConsole();
       
       // Create deployers
       gitDeployer = new GitDeployer(this.configManager.config, this.packageJson, this.cwd, this.branchName, this.buildConfig, this.debugMode);
@@ -182,7 +183,11 @@ class GitHubPagesDeployer {
         });
       }
       
+      // Complete progress and ensure console is restored
       this.progress.complete();
+      if (restoreConsole) {
+        restoreConsole();
+      }
       
       // Show final deployment info
       if (pagesDeployer.pagesUrl) {
@@ -201,14 +206,22 @@ class GitHubPagesDeployer {
       }
       
     } catch (error) {
-      restoreConsole();
+      // Ensure console is restored on error
+      this.progress.restoreConsole();
+      if (restoreConsole) {
+        restoreConsole();
+      }
       console.error('❌ Deployment failed:', error.message);
       if (this.debugMode) {
         console.error(error.stack);
       }
       process.exit(1);
     } finally {
-      restoreConsole();
+      // Ensure console is always restored
+      this.progress.restoreConsole();
+      if (restoreConsole) {
+        restoreConsole();
+      }
       if (gitDeployer) {
         gitDeployer.cleanup();
       }
