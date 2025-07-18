@@ -114,21 +114,18 @@ class GitHubPagesDeployer {
       if (!this.configManager.config) {
         this.configManager.config = await this.configManager.setupConfig(this.enterpriseHostname, this.packageJson, this.cwd);
       } else {
-        // Check if project name is set for this project
+        // Always prompt for project name
         const currentProjectName = this.configManager.getProjectName(this.cwd);
-        if (!currentProjectName) {
-          console.log('📛 No project name set for this repository.');
-          const defaultProjectName = this.packageJson.name || path.basename(this.cwd);
-          const projectName = await PromptUtil.promptUser(
-            `Project name for branch naming (default: ${defaultProjectName}): `,
-            defaultProjectName
-          );
-          this.configManager.saveProjectName(this.cwd, projectName);
-          console.log(`📛 Project name "${projectName}" saved for this repository\n`);
-        } else {
-          this.progress.log(`📛 Using project name: ${currentProjectName}`);
-          this.progress.log(`📂 Using deployment repository: ${this.configManager.config.username}/${this.configManager.config.repository}`);
-        }
+        // Default to directory name for first time, or previous value for subsequent runs
+        const defaultProjectName = currentProjectName || this.packageJson.name || path.basename(this.cwd);
+        
+        const projectName = await PromptUtil.promptUser(
+          `Project name for branch naming (default: ${defaultProjectName}): `,
+          defaultProjectName
+        );
+        
+        this.configManager.saveProjectName(this.cwd, projectName);
+        console.log(`📛 Project name "${projectName}" saved for this repository\n`);
       }
       
       // Now start silencing console for the main deployment process
@@ -189,20 +186,28 @@ class GitHubPagesDeployer {
         restoreConsole();
       }
       
-      // Show final deployment info
+      // Show final deployment info with Miami theme
       if (pagesDeployer.pagesUrl) {
-        console.log(`🔗 Preview URL: ${pagesDeployer.pagesUrl}`);
-        console.log(`🌿 Branch: ${this.branchName}`);
-        console.log(`📊 Project: ${this.configManager.getProjectName(this.cwd)}`);
+        const miami = {
+          blue: '\x1b[38;5;81m',
+          pink: '\x1b[38;5;198m', 
+          purple: '\x1b[38;5;141m',
+          reset: '\x1b[0m',
+          bold: '\x1b[1m'
+        };
+        
+        console.log(`${miami.blue}🔗 Preview URL: ${pagesDeployer.pagesUrl}${miami.reset}`);
+        console.log(`${miami.purple}🌿 Branch: ${this.branchName}${miami.reset}`);
+        console.log(`${miami.pink}📊 Project: ${this.configManager.getProjectName(this.cwd)}${miami.reset}`);
         
         if (!pagesDeployer.pagesConfigured) {
-          console.log('\n⚠️  Pages configuration may need manual setup:');
+          console.log(`\n${miami.purple}⚠️  Pages configuration may need manual setup:${miami.reset}`);
           console.log(`   1. Go to: ${pagesDeployer.repoUrl.replace('/tree/', '/settings/pages')}`);
           console.log(`   2. Set source to branch: ${this.branchName}`);
         }
         
-        console.log('\n✅ Your site should be live within a few minutes!');
-        console.log('📝 Check the repository\'s Actions tab for deployment status.');
+        console.log(`\n${miami.pink}${miami.bold}✅ Your site should be live within a few minutes!${miami.reset}`);
+        console.log(`${miami.blue}📝 Check the repository's Actions tab for deployment status.${miami.reset}`);
       }
       
     } catch (error) {

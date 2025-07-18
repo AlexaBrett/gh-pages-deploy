@@ -1,14 +1,22 @@
+const colors = require('colors');
+
 class ProgressUtil {
   constructor(debugMode = false) {
     this.debugMode = debugMode;
     this.currentStep = 0;
     this.totalSteps = 0;
     this.steps = [];
-    this.spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-    this.spinnerIndex = 0;
-    this.interval = null;
     this.originalConsole = null;
-    this.isProgressActive = false;
+    
+    // Miami theme colors using ANSI escape codes
+    this.miami = {
+      blue: '\x1b[38;5;81m',     // Miami blue (bright cyan)
+      pink: '\x1b[38;5;198m',    // Miami pink (hot pink)
+      purple: '\x1b[38;5;141m',  // Miami purple (medium orchid)
+      reset: '\x1b[0m',          // Reset color
+      bold: '\x1b[1m',           // Bold text
+      dim: '\x1b[2m'             // Dim text
+    };
   }
 
   startProgress(steps) {
@@ -17,10 +25,8 @@ class ProgressUtil {
     this.steps = steps;
     this.totalSteps = steps.length;
     this.currentStep = 0;
-    this.isProgressActive = true;
     
-    console.log('🚀 Starting GitHub Pages deployment...\n');
-    this.updateProgress();
+    console.log(`${this.miami.blue}🚀 Starting GitHub Pages deployment...${this.miami.reset}\n`);
   }
 
   async step(description, asyncFn) {
@@ -30,73 +36,29 @@ class ProgressUtil {
     }
     
     this.currentStep++;
-    this.updateProgress(description);
+    
+    // Show step start
+    console.log(`${this.miami.purple}⏳ ${this.currentStep}/${this.totalSteps} ${description}...${this.miami.reset}`);
     
     try {
-      // Stop progress animation and restore console for this step
-      this.pauseProgress();
-      
       const result = await asyncFn();
       
-      this.completeStep(description);
+      // Show step completion
+      console.log(`${this.miami.pink}✅ ${this.currentStep}/${this.totalSteps} ${description}${this.miami.reset}`);
+      
       return result;
     } catch (error) {
-      this.failStep(description, error);
+      // Show step failure
+      console.log(`${colors.red}❌ ${this.currentStep}/${this.totalSteps} ${description} - Failed${this.miami.reset}`);
+      console.log(`${colors.red}   Error: ${error.message}${this.miami.reset}`);
       throw error;
     }
-  }
-
-  updateProgress(currentDescription = null) {
-    if (this.debugMode || !this.isProgressActive) return;
-    
-    this.stopSpinner();
-    
-    const description = currentDescription || (this.steps[this.currentStep - 1] || 'Processing');
-    
-    this.interval = setInterval(() => {
-      process.stdout.write(`\r${this.spinner[this.spinnerIndex]} ${this.currentStep}/${this.totalSteps} ${description}...`);
-      this.spinnerIndex = (this.spinnerIndex + 1) % this.spinner.length;
-    }, 100);
-  }
-
-  completeStep(description) {
-    if (this.debugMode) return;
-    
-    this.stopSpinner();
-    process.stdout.write(`\r✅ ${this.currentStep}/${this.totalSteps} ${description}\n`);
-  }
-
-  failStep(description, error) {
-    if (this.debugMode) return;
-    
-    this.stopSpinner();
-    process.stdout.write(`\r❌ ${this.currentStep}/${this.totalSteps} ${description} - Failed\n`);
-    console.error(`Error: ${error.message}`);
   }
 
   complete() {
     if (this.debugMode) return;
     
-    this.stopSpinner();
-    this.isProgressActive = false;
-    
-    // Clear the current line and show success message
-    process.stdout.write('\r' + ' '.repeat(80) + '\r');
-    console.log('🎉 Deployment completed successfully!\n');
-  }
-
-  stopSpinner() {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-  }
-
-  pauseProgress() {
-    if (this.debugMode) return;
-    this.stopSpinner();
-    // Clear the current progress line
-    process.stdout.write('\r' + ' '.repeat(80) + '\r');
+    console.log(`${this.miami.pink}${this.miami.bold}\n🎉 Deployment completed successfully!${this.miami.reset}\n`);
   }
 
   silentConsole() {
@@ -124,9 +86,6 @@ class ProgressUtil {
 
   restoreConsole() {
     if (this.debugMode) return;
-    
-    // Always stop the spinner first to prevent interference
-    this.stopSpinner();
     
     if (this.originalConsole) {
       console.log = this.originalConsole.log;

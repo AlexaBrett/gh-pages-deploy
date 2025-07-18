@@ -23,7 +23,7 @@
     "url": "https://github.com/yourusername/gh-enterprise-pages-deploy/issues"
   },
   "homepage": "https://github.com/yourusername/gh-enterprise-pages-deploy#readme",
-  "dependencies": {},
-  "peerDependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "colors": "^1.4.0"
+  }
 }
