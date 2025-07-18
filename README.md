@@ -4,7 +4,7 @@
 
 ## About
 
-A CLI tool that builds your project, pushes it to a branch in your GitHub Enterprise Server, and enables GitHub Pages for easy preview sharing within your organization. Works with Next.js, Vite, React, Webpack, and most build tools.
+A CLI tool that builds your project, pushes it to a branch in your GitHub Enterprise Server, and enables GitHub Pages for easy preview sharing within your organization. Works with Next.js, Vite, React, and most build tools.
 
 **Enterprise Only** - Does not work with GitHub.com.
 
@@ -107,14 +107,14 @@ gh repo list  # Check permissions
 3. **Builds** your project with `npm run build`
 4. **Restores** original config files
 5. **Creates** a new branch with only build files
-6. **Enables** GitHub Pages on your enterprise server
+6. **Enables GitHub Pages** and sets the source to the new branch
+7. **Provides** direct link to your live preview
 
 Each deployment gets a unique branch name. Your working repository is never modified.
 
 ## Supported Projects
 
 - Next.js, Vite, Create React App
-- Webpack, Parcel, Rollup
 - Any project with `npm run build`
 
 Automatically finds build output directory from your config files.

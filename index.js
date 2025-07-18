@@ -29,101 +29,14 @@ class GitHubPagesDeployer {
       next: this.findNextConfig(),
       vite: this.findViteConfig(),
       react: this.findReactConfig(),
-      parcel: this.findParcelConfig(),
-      rollup: this.findRollupConfig(),
       generic: this.findGenericConfig()
     };
 
-    // Priority: Next.js > Vite > Create React App > Parcel > Rollup > Generic
+    // Priority: Next.js > Vite > Create React App > Generic
     if (configs.next) return configs.next;
     if (configs.vite) return configs.vite;
     if (configs.react) return configs.react;
-    if (configs.parcel) return configs.parcel;
-    if (configs.rollup) return configs.rollup;
     return configs.generic;
-  }
-
-  findParcelConfig() {
-    const configFiles = ['.parcelrc', 'package.json'];
-    const hasParcel = this.packageJson.devDependencies?.parcel || this.packageJson.dependencies?.parcel;
-    
-    if (hasParcel || fs.existsSync(path.join(this.cwd, '.parcelrc'))) {
-      console.log(`📦 Detected Parcel project`);
-      
-      const outputDir = this.parseParcelConfig();
-      
-      return {
-        framework: 'parcel',
-        buildCommand: 'npm run build',
-        outputDir: outputDir || 'dist'
-      };
-    }
-    return null;
-  }
-
-  parseParcelConfig() {
-    try {
-      // Check .parcelrc for targets
-      const parcelRcPath = path.join(this.cwd, '.parcelrc');
-      if (fs.existsSync(parcelRcPath)) {
-        const parcelRc = JSON.parse(fs.readFileSync(parcelRcPath, 'utf8'));
-        if (parcelRc.targets?.default?.distDir) {
-          console.log(`📁 Found custom distDir in .parcelrc: ${parcelRc.targets.default.distDir}`);
-          return parcelRc.targets.default.distDir;
-        }
-      }
-      
-      // Check package.json for targets
-      if (this.packageJson.targets?.default?.distDir) {
-        console.log(`📁 Found custom distDir in package.json: ${this.packageJson.targets.default.distDir}`);
-        return this.packageJson.targets.default.distDir;
-      }
-      
-      return 'dist';
-    } catch (error) {
-      console.log(`⚠️  Could not parse Parcel configuration, using default output directory`);
-      return 'dist';
-    }
-  }
-
-  findRollupConfig() {
-    const configFiles = ['rollup.config.js', 'rollup.config.ts', 'rollup.config.mjs'];
-    const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
-    
-    if (configFile || this.packageJson.devDependencies?.rollup) {
-      console.log(`📦 Detected Rollup project${configFile ? ` (${configFile})` : ''}`);
-      
-      const outputDir = configFile ? this.parseRollupConfig(configFile) : 'dist';
-      
-      return {
-        framework: 'rollup',
-        buildCommand: 'npm run build',
-        outputDir: outputDir || 'dist',
-        configFile: configFile
-      };
-    }
-    return null;
-  }
-
-  parseRollupConfig(configFile) {
-    try {
-      const configPath = path.join(this.cwd, configFile);
-      const configContent = fs.readFileSync(configPath, 'utf8');
-      
-      // Look for output.dir configuration
-      const outputDirMatch = configContent.match(/output\s*:\s*{[^}]*dir\s*:\s*['"`]([^'"`]+)['"`]/s) ||
-                           configContent.match(/dir\s*:\s*['"`]([^'"`]+)['"`]/);
-      
-      if (outputDirMatch) {
-        console.log(`📁 Found custom output dir: ${outputDirMatch[1]}`);
-        return outputDirMatch[1];
-      }
-      
-      return 'dist';
-    } catch (error) {
-      console.log(`⚠️  Could not parse ${configFile}, using default output directory`);
-      return 'dist';
-    }
   }
 
   findGenericConfig() {
@@ -331,6 +244,32 @@ class GitHubPagesDeployer {
     }
   }
 
+  getProjectKey() {
+    // Create a unique key for this project based on the directory path
+    // This allows us to store environment preferences per project
+    return path.resolve(this.cwd);
+  }
+
+  getLastEnvironment() {
+    const projectKey = this.getProjectKey();
+    return this.config.projectEnvironments?.[projectKey];
+  }
+
+  saveLastEnvironment(environment) {
+    const projectKey = this.getProjectKey();
+    
+    // Initialize projectEnvironments if it doesn't exist
+    if (!this.config.projectEnvironments) {
+      this.config.projectEnvironments = {};
+    }
+    
+    // Save the environment for this specific project
+    this.config.projectEnvironments[projectKey] = environment;
+    
+    // Save the updated config
+    this.saveConfig(this.config);
+  }
+
   async setupConfig() {
     console.log('🔧 First time setup - configuring deployment repository...\n');
     
@@ -380,7 +319,8 @@ class GitHubPagesDeployer {
     return new Promise((resolve) => {
       rl.question(question, (answer) => {
         rl.close();
-        resolve(answer.trim() || defaultValue);
+        const trimmedAnswer = answer.trim();
+        resolve(trimmedAnswer || defaultValue);
       });
     });
   }
@@ -767,6 +707,9 @@ export default defineConfig({
     // Copy build output to temp directory
     this.copyDirectory(outputPath, this.tempDir);
     
+    // Handle environment config replacement
+    await this.handleEnvironmentConfig();
+    
     // Create .nojekyll for GitHub Pages
     fs.writeFileSync(path.join(this.tempDir, '.nojekyll'), '');
     
@@ -804,6 +747,67 @@ export default defineConfig({
     
     console.log('📤 Pushing to GitHub...');
     execSync(`git push -u origin ${this.branchName}`, { cwd: this.tempDir });
+  }
+
+  async handleEnvironmentConfig() {
+    console.log('🔧 Checking for environment configuration...');
+    
+    // Check if env-content-* folders exist
+    const envDirs = fs.readdirSync(this.cwd).filter(dir => 
+      dir.startsWith('env-content-') && 
+      fs.statSync(path.join(this.cwd, dir)).isDirectory()
+    );
+    
+    if (envDirs.length === 0) {
+      console.log('ℹ️  No env-content-* directories found, skipping config replacement');
+      return;
+    }
+    
+    console.log(`📁 Found environment directories: ${envDirs.join(', ')}`);
+    
+    // Get the previously used environment for this project
+    const lastUsedEnv = this.getLastEnvironment();
+    let promptText = '[PLACEHOLDER: Replace with your custom prompt text]\n';
+    
+    if (lastUsedEnv && envDirs.includes(lastUsedEnv)) {
+      promptText += `Environment directory name (default: ${lastUsedEnv}): `;
+    } else {
+      promptText += 'Environment directory name: ';
+    }
+    
+    // Prompt user for environment selection
+    const userInput = await this.promptUser(promptText);
+    const selectedEnv = userInput.trim() || lastUsedEnv;
+    
+    if (!selectedEnv) {
+      console.log('ℹ️  No environment selected, skipping config replacement');
+      return;
+    }
+    
+    // Validate the selected directory exists
+    const envPath = path.join(this.cwd, selectedEnv);
+    if (!fs.existsSync(envPath) || !fs.statSync(envPath).isDirectory()) {
+      throw new Error(`Environment directory '${selectedEnv}' does not exist`);
+    }
+    
+    // Check if config.js exists in the selected directory
+    const configSourcePath = path.join(envPath, 'config.js');
+    if (!fs.existsSync(configSourcePath)) {
+      throw new Error(`config.js not found in '${selectedEnv}' directory`);
+    }
+    
+    // Check if config.js exists in the build output
+    const configDestPath = path.join(this.tempDir, 'config.js');
+    if (!fs.existsSync(configDestPath)) {
+      console.log('⚠️  config.js not found in build output, copying anyway...');
+    }
+    
+    // Replace the config.js file
+    fs.copyFileSync(configSourcePath, configDestPath);
+    console.log(`✅ Replaced config.js with version from '${selectedEnv}'`);
+    
+    // Save the selected environment for future use in this project
+    this.saveLastEnvironment(selectedEnv);
   }
 
   copyDirectory(src, dest) {
