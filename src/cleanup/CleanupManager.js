@@ -27,8 +27,8 @@ class CleanupManager {
       });
       
       const branches = JSON.parse(branchesOutput);
-      const fourMonthsAgo = new Date();
-      fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 4);
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
       
       let branchesToDelete = [];
       
@@ -54,7 +54,7 @@ class CleanupManager {
           
           const branchDate = new Date(year, month, day, hour, minute);
           
-          if (branchDate < fourMonthsAgo) {
+          if (branchDate < oneWeekAgo) {
             branchesToDelete.push({
               name: branchName,
               date: branchDate
@@ -65,13 +65,13 @@ class CleanupManager {
       
       if (branchesToDelete.length === 0) {
         if (!autoMode) {
-          console.log('✅ No branches older than 4 months found.');
+          console.log('✅ No branches older than 1 week found.');
         }
         return;
       }
       
       if (!autoMode) {
-        console.log(`📋 Found ${branchesToDelete.length} branches older than 4 months:`);
+        console.log(`📋 Found ${branchesToDelete.length} branches older than 1 week:`);
         branchesToDelete.forEach(branch => {
           console.log(`   - ${branch.name} (${branch.date.toLocaleDateString()})`);
         });

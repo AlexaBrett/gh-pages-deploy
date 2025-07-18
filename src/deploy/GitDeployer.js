@@ -21,7 +21,7 @@ class GitDeployer {
     this.tempDir = path.join(os.tmpdir(), `gh-deploy-${Date.now()}`);
     fs.mkdirSync(this.tempDir, { recursive: true });
     
-    console.log('🔧 Setting up temporary deployment repository...');
+    this.log('🔧 Setting up temporary deployment repository...');
     execSync('git init', { cwd: this.tempDir });
     
     // Set up git config in temp directory
@@ -108,12 +108,12 @@ class GitDeployer {
   }
 
   async handleEnvironmentConfig() {
-    console.log('🔧 Checking for environment configuration...');
+    this.log('🔧 Checking for environment configuration...');
     
     // Check if env folder exists
     const envBasePath = path.join(this.cwd, 'env');
     if (!fs.existsSync(envBasePath) || !fs.statSync(envBasePath).isDirectory()) {
-      console.log('ℹ️  No env directory found, skipping config replacement');
+      this.log('ℹ️  No env directory found, skipping config replacement');
       return;
     }
     
@@ -123,11 +123,11 @@ class GitDeployer {
     );
     
     if (envDirs.length === 0) {
-      console.log('ℹ️  No directories found in env folder, skipping config replacement');
+      this.log('ℹ️  No directories found in env folder, skipping config replacement');
       return;
     }
     
-    console.log(`📁 Found environment directories in env/: ${envDirs.join(', ')}`);
+    this.log(`📁 Found environment directories in env/: ${envDirs.join(', ')}`);
     
     // Get the previously used environment for this project
     const ConfigManager = require('../config/ConfigManager');
@@ -146,7 +146,7 @@ class GitDeployer {
     const selectedEnv = userInput.trim() || lastUsedEnv;
     
     if (!selectedEnv) {
-      console.log('ℹ️  No environment selected, skipping config replacement');
+      this.log('ℹ️  No environment selected, skipping config replacement');
       return;
     }
     
@@ -165,12 +165,12 @@ class GitDeployer {
     // Check if config.js exists in the build output
     const configDestPath = path.join(this.tempDir, 'config.js');
     if (!fs.existsSync(configDestPath)) {
-      console.log('⚠️  config.js not found in build output, copying anyway...');
+      this.log('⚠️  config.js not found in build output, copying anyway...');
     }
     
     // Replace the config.js file
     fs.copyFileSync(configSourcePath, configDestPath);
-    console.log(`✅ Replaced config.js with version from 'env/${selectedEnv}'`);
+    this.log(`✅ Replaced config.js with version from 'env/${selectedEnv}'`);
     
     // Save the selected environment for future use in this project
     configManager.saveLastEnvironment(this.cwd, selectedEnv);

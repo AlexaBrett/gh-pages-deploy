@@ -12,16 +12,18 @@ const PagesDeployer = require('./deploy/PagesDeployer');
 const GitHubUtil = require('./utils/github');
 const FileUtil = require('./utils/file');
 const PromptUtil = require('./utils/prompt');
+const ProgressUtil = require('./utils/progress');
 
 class GitHubPagesDeployer {
   constructor() {
     this.cwd = process.cwd();
+    this.debugMode = process.argv.includes('--debug') || process.argv.includes('-d');
+    this.progress = new ProgressUtil(this.debugMode);
     this.packageJson = FileUtil.loadPackageJson(this.cwd);
-    this.buildDetector = new BuildDetector(this.cwd, this.packageJson);
+    this.buildDetector = new BuildDetector(this.cwd, this.packageJson, this.debugMode);
     this.buildConfig = this.buildDetector.detectBuildConfig();
     this.configManager = new ConfigManager();
     this.branchName = this.generateBranchName();
-    this.debugMode = process.argv.includes('--debug') || process.argv.includes('-d');
     this.enterpriseHostname = null;
   }
 
@@ -38,17 +40,13 @@ class GitHubPagesDeployer {
   }
 
   async buildProject() {
-    if (!this.debugMode) {
-      await this.showProgress('Building project', 1000);
-    } else {
-      console.log(`🔨 Building project using: ${this.buildConfig.buildCommand}`);
-    }
+    this.progress.log(`🔨 Building project: ${this.buildConfig.buildCommand}`);
     
     // Calculate the base path for GitHub Pages (just repository name, no branch)
     const basePath = `/${this.configManager.config.repository}`;
     
     // Handle framework-specific base path configuration
-    const buildConfigurer = new BuildConfigurer(this.cwd, this.buildConfig);
+    const buildConfigurer = new BuildConfigurer(this.cwd, this.buildConfig, this.debugMode);
     await buildConfigurer.configureBasePath(basePath);
     
     try {
@@ -101,27 +99,27 @@ class GitHubPagesDeployer {
 
   async deploy() {
     let gitDeployer = null;
+    const restoreConsole = this.progress.silentConsole();
     
     try {
-      console.log('🚀 Starting GitHub Pages deployment...\n');
-      
-      // Pre-flight checks
+      // Pre-flight checks (these still need to show output)
       if (!(await GitHubUtil.checkGitHubCLI())) return;
       
       this.enterpriseHostname = await GitHubUtil.checkAuthentication();
       if (!this.enterpriseHostname) return;
       
-      this.log(`🏢 Connected to GitHub Enterprise Server: ${this.enterpriseHostname}`);
+      this.progress.log(`🏢 Connected to GitHub Enterprise Server: ${this.enterpriseHostname}`);
       
-      // Check/setup configuration
+      // Check/setup configuration (these still need to show output for user interaction)
       if (!this.configManager.config) {
+        restoreConsole(); // Restore console for setup
         this.configManager.config = await this.configManager.setupConfig(this.enterpriseHostname, this.packageJson, this.cwd);
+        this.progress.silentConsole(); // Re-silence after setup
       } else {
-        console.log(`📂 Using deployment repository: ${this.configManager.config.username}/${this.configManager.config.repository}`);
-        
         // Check if project name is set for this project
         const currentProjectName = this.configManager.getProjectName(this.cwd);
         if (!currentProjectName) {
+          restoreConsole(); // Restore console for prompts
           console.log('📛 No project name set for this repository.');
           const defaultProjectName = this.packageJson.name || path.basename(this.cwd);
           const projectName = await PromptUtil.promptUser(
@@ -130,8 +128,10 @@ class GitHubPagesDeployer {
           );
           this.configManager.saveProjectName(this.cwd, projectName);
           console.log(`📛 Project name "${projectName}" saved for this repository\n`);
+          this.progress.silentConsole(); // Re-silence after prompts
         } else {
-          console.log(`📛 Using project name: ${currentProjectName}`);
+          this.progress.log(`📛 Using project name: ${currentProjectName}`);
+          this.progress.log(`📂 Using deployment repository: ${this.configManager.config.username}/${this.configManager.config.repository}`);
         }
       }
       
@@ -139,25 +139,74 @@ class GitHubPagesDeployer {
       gitDeployer = new GitDeployer(this.configManager.config, this.packageJson, this.cwd, this.branchName, this.buildConfig, this.debugMode);
       const pagesDeployer = new PagesDeployer(this.configManager.config, this.packageJson, this.branchName, this.debugMode);
       
-      // Setup
-      await gitDeployer.ensureGitRepo();
+      // Start progress tracking
+      const steps = [
+        'Detecting build configuration',
+        'Setting up deployment repository',
+        'Building project',
+        'Deploying to GitHub',
+        'Configuring GitHub Pages'
+      ];
       
-      // Build and deploy
-      await this.buildProject();
-      await gitDeployer.deployToGitHub();
-      await pagesDeployer.enableGitHubPages();
+      if (this.configManager.config.autoCleanup) {
+        steps.push('Cleaning up old branches');
+      }
+      
+      this.progress.startProgress(steps);
+      
+      // Execute deployment steps with progress
+      await this.progress.step('Detecting build configuration', async () => {
+        // Build config already detected in constructor, just a brief delay
+        await new Promise(resolve => setTimeout(resolve, 500));
+      });
+      
+      await this.progress.step('Setting up deployment repository', async () => {
+        await gitDeployer.ensureGitRepo();
+      });
+      
+      await this.progress.step('Building project', async () => {
+        await this.buildProject();
+      });
+      
+      await this.progress.step('Deploying to GitHub', async () => {
+        await gitDeployer.deployToGitHub();
+      });
+      
+      await this.progress.step('Configuring GitHub Pages', async () => {
+        await pagesDeployer.enableGitHubPages();
+      });
       
       // Auto-cleanup if enabled
       if (this.configManager.config.autoCleanup) {
-        console.log('');
-        const cleanupManager = new CleanupManager(this.configManager.config);
-        await cleanupManager.cleanupOldBranches(true);
+        await this.progress.step('Cleaning up old branches', async () => {
+          const cleanupManager = new CleanupManager(this.configManager.config);
+          await cleanupManager.cleanupOldBranches(true);
+        });
+      }
+      
+      this.progress.complete();
+      
+      // Show final deployment info
+      if (pagesDeployer.pagesUrl) {
+        console.log(`🔗 Preview: ${pagesDeployer.pagesUrl}`);
+        console.log(`🌿 Branch: ${this.branchName}`);
+        
+        if (!pagesDeployer.pagesConfigured) {
+          console.log('\n⚠️  Pages configuration may need manual setup:');
+          console.log(`   1. Go to: ${pagesDeployer.repoUrl.replace('/tree/', '/settings/pages')}`);
+          console.log(`   2. Set source to branch: ${this.branchName}`);
+        }
       }
       
     } catch (error) {
+      restoreConsole();
       console.error('❌ Deployment failed:', error.message);
+      if (this.debugMode) {
+        console.error(error.stack);
+      }
       process.exit(1);
     } finally {
+      restoreConsole();
       if (gitDeployer) {
         gitDeployer.cleanup();
       }

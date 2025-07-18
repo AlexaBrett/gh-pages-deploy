@@ -16,7 +16,7 @@ Usage:
   github-pages-poc-deploy --config       Set up or update configuration
   github-pages-poc-deploy --config --show   Show current configuration
   github-pages-poc-deploy --config --reset  Reset configuration
-  github-pages-poc-deploy --cleanup      Remove deployment branches older than 4 months
+  github-pages-poc-deploy --cleanup      Remove deployment branches older than 1 week
   github-pages-poc-deploy --cleanup --auto-cleanup  Remove old branches without confirmation
   github-pages-poc-deploy --help         Show this help
 
@@ -33,8 +33,8 @@ Normal mode shows progress indicators for a cleaner experience.
 First run will automatically prompt for configuration setup.
 Project names are stored per directory for consistent branch naming.
 
-Auto-cleanup can be enabled during setup to automatically remove old branches
-after each deployment without user intervention.
+Auto-cleanup is enabled by default to automatically remove branches older than 1 week
+after each deployment. This can be disabled during setup or via --config.
 `);
 }
 

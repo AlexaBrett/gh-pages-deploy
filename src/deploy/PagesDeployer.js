@@ -101,20 +101,26 @@ class PagesDeployer {
       const pagesUrl = `https://${hostname}/pages/${this.config.username}/${this.config.repository}/`;
       const repoUrl = `https://${hostname}/${this.config.username}/${this.config.repository}/tree/${this.branchName}`;
       
-      console.log('\n🎉 Deployment complete!');
-      console.log(`🔗 Preview: ${pagesUrl}`);
-      console.log(`🌿 Branch: ${this.branchName}`);
-      
-      if (!pagesConfigured) {
-        console.log('\n⚠️  Pages configuration may need manual setup:');
-        console.log(`   1. Go to: ${repoUrl.replace('/tree/', '/settings/pages')}`);
-        console.log(`   2. Set source to branch: ${this.branchName}`);
-      }
-      
+      // In normal mode, final output will be handled by the progress system
       if (this.debugMode) {
+        console.log('\n🎉 Deployment complete!');
+        console.log(`🔗 Preview: ${pagesUrl}`);
+        console.log(`🌿 Branch: ${this.branchName}`);
+        
+        if (!pagesConfigured) {
+          console.log('\n⚠️  Pages configuration may need manual setup:');
+          console.log(`   1. Go to: ${repoUrl.replace('/tree/', '/settings/pages')}`);
+          console.log(`   2. Set source to branch: ${this.branchName}`);
+        }
+        
         console.log(`\n📦 Repository: ${repoUrl}`);
         console.log(`🏢 Enterprise: ${hostname}`);
       }
+      
+      // Store URLs for progress system to display
+      this.pagesUrl = pagesUrl;
+      this.repoUrl = repoUrl;
+      this.pagesConfigured = pagesConfigured;
       
       // Update local config with last deployment info
       this.config.lastDeployment = {

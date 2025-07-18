@@ -2,9 +2,16 @@ const fs = require('fs');
 const path = require('path');
 
 class BuildDetector {
-  constructor(cwd, packageJson) {
+  constructor(cwd, packageJson, debugMode = false) {
     this.cwd = cwd;
     this.packageJson = packageJson;
+    this.debugMode = debugMode;
+  }
+
+  log(message) {
+    if (this.debugMode) {
+      console.log(message);
+    }
   }
 
   detectBuildConfig() {
@@ -31,7 +38,7 @@ class BuildDetector {
     if (buildScript) {
       for (const dir of commonDirs) {
         if (buildScript.includes(dir)) {
-          console.log(`📦 Detected generic project with inferred output: ${dir}`);
+          this.log(`📦 Detected generic project with inferred output: ${dir}`);
           return {
             framework: 'generic',
             buildCommand: 'npm run build',
@@ -44,7 +51,7 @@ class BuildDetector {
     // Check which common directories exist after a potential build
     const existingDirs = commonDirs.filter(dir => fs.existsSync(path.join(this.cwd, dir)));
     if (existingDirs.length > 0) {
-      console.log(`📦 Detected generic project, found existing directory: ${existingDirs[0]}`);
+      this.log(`📦 Detected generic project, found existing directory: ${existingDirs[0]}`);
       return {
         framework: 'generic',
         buildCommand: 'npm run build',
@@ -52,7 +59,7 @@ class BuildDetector {
       };
     }
     
-    console.log(`📦 Detected generic project`);
+    this.log(`📦 Detected generic project`);
     return {
       framework: 'generic',
       buildCommand: 'npm run build',
@@ -65,7 +72,7 @@ class BuildDetector {
     const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
     
     if (configFile) {
-      console.log(`📦 Detected Next.js project (${configFile})`);
+      this.log(`📦 Detected Next.js project (${configFile})`);
       
       // Try to parse the config to find output directory
       const outputDir = this.parseNextConfig(configFile);
@@ -89,7 +96,7 @@ class BuildDetector {
       // Look for distDir configuration
       const distDirMatch = configContent.match(/distDir\s*:\s*['"`]([^'"`]+)['"`]/);
       if (distDirMatch) {
-        console.log(`📁 Found custom distDir: ${distDirMatch[1]}`);
+        this.log(`📁 Found custom distDir: ${distDirMatch[1]}`);
         return distDirMatch[1];
       }
       
@@ -99,7 +106,7 @@ class BuildDetector {
         // For static export, check for custom outDir or default to 'out'
         const outDirMatch = configContent.match(/outDir\s*:\s*['"`]([^'"`]+)['"`]/);
         if (outDirMatch) {
-          console.log(`📁 Found custom outDir for export: ${outDirMatch[1]}`);
+          this.log(`📁 Found custom outDir for export: ${outDirMatch[1]}`);
           return outDirMatch[1];
         }
         return 'out'; // Default for Next.js static export
@@ -108,7 +115,7 @@ class BuildDetector {
       // If no static export, default build goes to .next
       return '.next';
     } catch (error) {
-      console.log(`⚠️  Could not parse ${configFile}, using default output directory`);
+      this.log(`⚠️  Could not parse ${configFile}, using default output directory`);
       return 'out';
     }
   }
@@ -118,7 +125,7 @@ class BuildDetector {
     const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
     
     if (configFile || this.packageJson.devDependencies?.vite) {
-      console.log(`⚡ Detected Vite project${configFile ? ` (${configFile})` : ''}`);
+      this.log(`⚡ Detected Vite project${configFile ? ` (${configFile})` : ''}`);
       
       // Try to parse the config to find output directory
       const outputDir = configFile ? this.parseViteConfig(configFile) : 'dist';
@@ -143,20 +150,20 @@ class BuildDetector {
                          configContent.match(/outDir\s*:\s*['"`]([^'"`]+)['"`]/);
       
       if (outDirMatch) {
-        console.log(`📁 Found custom outDir: ${outDirMatch[1]}`);
+        this.log(`📁 Found custom outDir: ${outDirMatch[1]}`);
         return outDirMatch[1];
       }
       
       return 'dist'; // Vite default
     } catch (error) {
-      console.log(`⚠️  Could not parse ${configFile}, using default output directory`);
+      this.log(`⚠️  Could not parse ${configFile}, using default output directory`);
       return 'dist';
     }
   }
 
   findReactConfig() {
     if (this.packageJson.dependencies?.['react-scripts']) {
-      console.log(`⚛️  Detected Create React App project`);
+      this.log(`⚛️  Detected Create React App project`);
       
       // Check for custom build directory in package.json
       const outputDir = this.parseReactConfig();
@@ -179,7 +186,7 @@ class BuildDetector {
         // Look for BUILD_PATH=customdir in build script
         const buildPathMatch = buildScript.match(/BUILD_PATH=([^\s]+)/);
         if (buildPathMatch) {
-          console.log(`📁 Found custom BUILD_PATH: ${buildPathMatch[1]}`);
+          this.log(`📁 Found custom BUILD_PATH: ${buildPathMatch[1]}`);
           return buildPathMatch[1];
         }
       }
@@ -192,7 +199,7 @@ class BuildDetector {
           const envContent = fs.readFileSync(envPath, 'utf8');
           const buildPathMatch = envContent.match(/BUILD_PATH=([^\s\n]+)/);
           if (buildPathMatch) {
-            console.log(`📁 Found BUILD_PATH in ${envFile}: ${buildPathMatch[1]}`);
+            this.log(`📁 Found BUILD_PATH in ${envFile}: ${buildPathMatch[1]}`);
             return buildPathMatch[1];
           }
         }
@@ -200,7 +207,7 @@ class BuildDetector {
       
       return 'build'; // Create React App default
     } catch (error) {
-      console.log(`⚠️  Could not parse React configuration, using default output directory`);
+      this.log(`⚠️  Could not parse React configuration, using default output directory`);
       return 'build';
     }
   }

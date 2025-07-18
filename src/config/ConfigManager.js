@@ -95,8 +95,8 @@ class ConfigManager {
     
     // Ask for auto-cleanup preference
     const autoCleanup = await PromptUtil.promptUser(
-      `Enable automatic cleanup of branches older than 4 months? (y/N): `,
-      'N'
+      `Enable automatic cleanup of branches older than 1 week? (Y/n): `,
+      'Y'
     );
     
     // Check if repo already exists
@@ -196,9 +196,9 @@ This repository is configured for GitHub Enterprise Server: ${hostname}
       defaultProjectName
     );
     
-    const currentAutoCleanup = this.config.autoCleanup ? 'y' : 'N';
+    const currentAutoCleanup = this.config.autoCleanup ? 'Y' : 'n';
     const autoCleanup = await PromptUtil.promptUser(
-      `Enable automatic cleanup of branches older than 4 months? (y/N): `,
+      `Enable automatic cleanup of branches older than 1 week? (Y/n): `,
       currentAutoCleanup
     );
     

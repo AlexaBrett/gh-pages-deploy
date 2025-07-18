@@ -78,13 +78,13 @@ Repository name (default: gh-pages-previews): [Enter]
 github-pages-poc-deploy --config          # Reconfigure or update project name
 github-pages-poc-deploy --config --show   # View config
 github-pages-poc-deploy --config --reset  # Reset config
-github-pages-poc-deploy --cleanup         # Remove branches older than 4 months
+github-pages-poc-deploy --cleanup         # Remove branches older than 1 week
 
 # Short form
 ghpd --config          # Reconfigure or update project name
 ghpd --config --show   # View config
 ghpd --config --reset  # Reset config
-ghpd --cleanup         # Remove branches older than 4 months
+ghpd --cleanup         # Remove branches older than 1 week
 ```
 
 Configuration stored in `~/.ghd-config.json`
@@ -93,7 +93,7 @@ Configuration stored in `~/.ghd-config.json`
 The tool now asks for and stores a project name for each repository. This name is used in branch naming instead of the package.json name, giving you more control over branch naming. Project names are stored per directory, so different projects can have different names.
 
 ### Cleanup
-To prevent the deployment repository from growing too large, you can clean up old deployment branches:
+To prevent the deployment repository from growing too large, old deployment branches are automatically cleaned up:
 
 ```bash
 github-pages-poc-deploy --cleanup                    # Manual cleanup with confirmation
@@ -105,16 +105,16 @@ ghpd --cleanup --auto-cleanup    # Automatic cleanup without confirmation
 ```
 
 **Manual Cleanup:**
-- Find all deployment branches older than 4 months
+- Find all deployment branches older than 1 week
 - Show you a list of branches to be deleted
 - Ask for confirmation before deleting
 - Remove the old branches from your deployment repository
 
-**Automatic Cleanup:**
-- **During Setup**: Enable auto-cleanup when first configuring the tool
-- **After Each Deployment**: Automatically removes old branches after successful deployments (if enabled)
+**Automatic Cleanup (Enabled by Default):**
+- **During Setup**: Auto-cleanup is enabled by default (can be disabled)
+- **After Each Deployment**: Automatically removes branches older than 1 week after successful deployments
 - **Command Line**: Use `--auto-cleanup` flag for unattended cleanup
-- **Configuration**: Toggle auto-cleanup on/off using `gh-deploy --config`
+- **Configuration**: Toggle auto-cleanup on/off using `ghpd --config`
 
 ## Troubleshooting
 
