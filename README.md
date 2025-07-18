@@ -46,10 +46,13 @@ npx gh-enterprise-pages-deploy
 
 ```bash
 # First run - sets up deployment repository
-gh-deploy
+github-pages-poc-deploy
 
 # Subsequent runs - deploy current project
-gh-deploy
+github-pages-poc-deploy
+
+# Short form
+ghpd
 ```
 
 ### First Time Setup
@@ -72,12 +75,46 @@ Repository name (default: gh-pages-previews): [Enter]
 ## Configuration
 
 ```bash
-gh-deploy --config          # Reconfigure
-gh-deploy --config --show   # View config
-gh-deploy --config --reset  # Reset config
+github-pages-poc-deploy --config          # Reconfigure or update project name
+github-pages-poc-deploy --config --show   # View config
+github-pages-poc-deploy --config --reset  # Reset config
+github-pages-poc-deploy --cleanup         # Remove branches older than 4 months
+
+# Short form
+ghpd --config          # Reconfigure or update project name
+ghpd --config --show   # View config
+ghpd --config --reset  # Reset config
+ghpd --cleanup         # Remove branches older than 4 months
 ```
 
 Configuration stored in `~/.ghd-config.json`
+
+### Project Names
+The tool now asks for and stores a project name for each repository. This name is used in branch naming instead of the package.json name, giving you more control over branch naming. Project names are stored per directory, so different projects can have different names.
+
+### Cleanup
+To prevent the deployment repository from growing too large, you can clean up old deployment branches:
+
+```bash
+github-pages-poc-deploy --cleanup                    # Manual cleanup with confirmation
+github-pages-poc-deploy --cleanup --auto-cleanup    # Automatic cleanup without confirmation
+
+# Short form
+ghpd --cleanup                    # Manual cleanup with confirmation
+ghpd --cleanup --auto-cleanup    # Automatic cleanup without confirmation
+```
+
+**Manual Cleanup:**
+- Find all deployment branches older than 4 months
+- Show you a list of branches to be deleted
+- Ask for confirmation before deleting
+- Remove the old branches from your deployment repository
+
+**Automatic Cleanup:**
+- **During Setup**: Enable auto-cleanup when first configuring the tool
+- **After Each Deployment**: Automatically removes old branches after successful deployments (if enabled)
+- **Command Line**: Use `--auto-cleanup` flag for unattended cleanup
+- **Configuration**: Toggle auto-cleanup on/off using `gh-deploy --config`
 
 ## Troubleshooting
 
@@ -118,3 +155,16 @@ Each deployment gets a unique branch name. Your working repository is never modi
 - Any project with `npm run build`
 
 Automatically finds build output directory from your config files.
+
+## Development
+
+The codebase is organized into modules for better maintainability:
+
+- `src/cli.js` - Main CLI entry point
+- `src/config/` - Configuration management
+- `src/cleanup/` - Branch cleanup functionality  
+- `src/build/` - Build system detection and configuration
+- `src/deploy/` - Git and GitHub Pages deployment
+- `src/utils/` - Shared utilities
+
+See `src/README.md` for detailed module documentation.

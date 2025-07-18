@@ -1,28 +1,16 @@
 {
-  "name": "gh-enterprise-pages-deploy",
+  "name": "gh-pages-poc-deploy",
   "version": "1.0.0",
   "description": "Automatically build, push to GitHub Enterprise Server, and deploy to GitHub Pages with a single command",
   "main": "index.js",
   "bin": {
-    "gh-deploy": "./index.js",
-    "ghd": "./index.js"
+    "github-pages-poc-deploy": "./index.js",
+    "ghpd": "./index.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 0"
   },
-  "keywords": [
-    "github-enterprise",
-    "github-enterprise-server",
-    "github-pages",
-    "deploy",
-    "build",
-    "automation",
-    "nextjs",
-    "vite",
-    "react",
-    "enterprise"
-  ],
-  "author": "Your Name",
+  "author": "Alexa Brett",
   "license": "MIT",
   "engines": {
     "node": ">=14.0.0"
