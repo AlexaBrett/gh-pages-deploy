@@ -28,7 +28,7 @@ Usage:
 Configuration is stored in: ~/.ghd-config.json
 
 Debug mode (--debug or -d) shows detailed output and error information.
-Normal mode shows progress indicators for a cleaner experience.
+Normal mode shows minimal Miami-themed logging for a cleaner experience.
 
 First run will automatically prompt for configuration setup.
 Project names are stored per directory for consistent branch naming.
