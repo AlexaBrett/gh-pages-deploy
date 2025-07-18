@@ -1,0 +1,41 @@
+{
+  "name": "gh-enterprise-pages-deploy",
+  "version": "1.0.0",
+  "description": "Automatically build, push to GitHub Enterprise Server, and deploy to GitHub Pages with a single command",
+  "main": "index.js",
+  "bin": {
+    "gh-deploy": "./index.js",
+    "ghd": "./index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "github-enterprise",
+    "github-enterprise-server",
+    "github-pages",
+    "deploy",
+    "build",
+    "automation",
+    "nextjs",
+    "vite",
+    "react",
+    "enterprise"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/gh-enterprise-pages-deploy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/gh-enterprise-pages-deploy/issues"
+  },
+  "homepage": "https://github.com/yourusername/gh-enterprise-pages-deploy#readme",
+  "dependencies": {},
+  "peerDependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,745 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { execSync, spawn } = require('child_process');
+const crypto = require('crypto');
+
+class GitHubPagesDeployer {
+  constructor() {
+    this.cwd = process.cwd();
+    this.configPath = path.join(os.homedir(), '.ghd-config.json');
+    this.packageJson = this.loadPackageJson();
+    this.buildConfig = this.detectBuildConfig();
+    this.config = this.loadConfig();
+    this.branchName = this.generateBranchName();
+  }
+
+  loadPackageJson() {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(this.cwd, 'package.json'), 'utf8'));
+    } catch (error) {
+      throw new Error('No package.json found. Are you in an npm project?');
+    }
+  }
+
+  detectBuildConfig() {
+    const configs = {
+      next: this.findNextConfig(),
+      vite: this.findViteConfig(),
+      react: this.findReactConfig(),
+      generic: { buildCommand: 'npm run build', outputDir: 'dist' }
+    };
+
+    // Priority: Next.js > Vite > Create React App > Generic
+    if (configs.next) return configs.next;
+    if (configs.vite) return configs.vite;
+    if (configs.react) return configs.react;
+    return configs.generic;
+  }
+
+  findNextConfig() {
+    const configFiles = ['next.config.js', 'next.config.ts', 'next.config.mjs'];
+    const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
+    
+    if (configFile) {
+      console.log(`📦 Detected Next.js project (${configFile})`);
+      return {
+        framework: 'next',
+        buildCommand: 'npm run build',
+        outputDir: 'out', // Next.js static export default
+        requiresExport: true
+      };
+    }
+    return null;
+  }
+
+  findViteConfig() {
+    const configFiles = ['vite.config.js', 'vite.config.ts', 'vitest.config.js', 'vitest.config.ts'];
+    const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
+    
+    if (configFile || this.packageJson.devDependencies?.vite) {
+      console.log(`⚡ Detected Vite project${configFile ? ` (${configFile})` : ''}`);
+      return {
+        framework: 'vite',
+        buildCommand: 'npm run build',
+        outputDir: 'dist'
+      };
+    }
+    return null;
+  }
+
+  findReactConfig() {
+    if (this.packageJson.dependencies?.['react-scripts']) {
+      console.log(`⚛️  Detected Create React App project`);
+      return {
+        framework: 'react',
+        buildCommand: 'npm run build',
+        outputDir: 'build'
+      };
+    }
+    return null;
+  }
+
+  loadConfig() {
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const config = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+        return config;
+      }
+    } catch (error) {
+      console.log('⚠️  Config file corrupted, will recreate');
+    }
+    return null;
+  }
+
+  saveConfig(config) {
+    try {
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to save config:', error.message);
+      return false;
+    }
+  }
+
+  async setupConfig() {
+    console.log('🔧 First time setup - configuring deployment repository...\n');
+    
+    const username = this.getGitHubUsername();
+    const defaultRepoName = 'gh-pages-previews';
+    
+    console.log(`We'll create a repository to store all your preview deployments.`);
+    console.log(`Each deployment will be a separate branch in this repository.`);
+    console.log(`🏢 GitHub Enterprise Server: ${this.enterpriseHostname}\n`);
+    
+    // Ask for repository name
+    const repoName = await this.promptUser(
+      `Repository name (default: ${defaultRepoName}): `,
+      defaultRepoName
+    );
+    
+    // Check if repo already exists
+    const repoExists = await this.checkRepoExists(username, repoName);
+    
+    if (repoExists) {
+      console.log(`✅ Repository ${username}/${repoName} already exists, will use it.`);
+    } else {
+      console.log(`🚀 Creating repository ${username}/${repoName}...`);
+      await this.createDeploymentRepo(repoName);
+    }
+    
+    const config = {
+      username,
+      repository: repoName,
+      hostname: this.enterpriseHostname,
+      createdAt: new Date().toISOString()
+    };
+    
+    this.saveConfig(config);
+    console.log(`💾 Configuration saved to ${this.configPath}\n`);
+    
+    return config;
+  }
+
+  async promptUser(question, defaultValue = '') {
+    const readline = require('readline');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    
+    return new Promise((resolve) => {
+      rl.question(question, (answer) => {
+        rl.close();
+        resolve(answer.trim() || defaultValue);
+      });
+    });
+  }
+
+  async checkRepoExists(username, repoName) {
+    try {
+      const hostname = this.enterpriseHostname || this.config?.hostname;
+      if (!hostname) {
+        throw new Error('No enterprise hostname configured');
+      }
+      execSync(`gh repo view ${username}/${repoName} --hostname ${hostname}`, { stdio: 'ignore' });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async createDeploymentRepo(repoName) {
+    try {
+      const hostname = this.enterpriseHostname || this.config?.hostname;
+      if (!hostname) {
+        throw new Error('No enterprise hostname configured');
+      }
+      
+      // Create the repository
+      execSync(`gh repo create ${repoName} --public --description "Auto-deployed previews from gh-pages-auto-deploy" --hostname ${hostname}`, { 
+        stdio: 'inherit'
+      });
+      
+      // Clone it to set up initial structure
+      const tempDir = path.join(os.tmpdir(), `setup-${Date.now()}`);
+      const username = this.getGitHubUsername();
+      const repoUrl = `https://${hostname}/${username}/${repoName}.git`;
+      
+      execSync(`git clone ${repoUrl} ${tempDir}`);
+      
+      // Create initial README
+      const pagesBaseUrl = `https://${hostname}/pages/${username}/${repoName}`;
+        
+      const readmeContent = `# Preview Deployments
+
+This repository contains auto-deployed previews created with \`gh-pages-auto-deploy\`.
+
+Each branch represents a different deployment:
+- Branch names follow the pattern: \`{project-name}-{timestamp}-{hash}\`
+- Each branch is automatically deployed to GitHub Pages
+- View deployments at: ${pagesBaseUrl}/
+
+## Branches
+This will be updated automatically as you create new deployments.
+
+## GitHub Enterprise Server
+This repository is configured for GitHub Enterprise Server: ${hostname}
+`;
+      
+      fs.writeFileSync(path.join(tempDir, 'README.md'), readmeContent);
+      
+      execSync('git add README.md', { cwd: tempDir });
+      execSync('git commit -m "Initial setup for preview deployments"', { cwd: tempDir });
+      execSync('git push origin main', { cwd: tempDir });
+      
+      // Cleanup
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      
+    } catch (error) {
+      throw new Error(`Failed to create deployment repository: ${error.message}`);
+    }
+  }
+
+  generateBranchName() {
+    const baseName = this.packageJson.name || path.basename(this.cwd) || 'project';
+    const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+    const randomId = crypto.randomBytes(3).toString('hex');
+    
+    // Clean the base name (remove npm scope, special chars)
+    const cleanBaseName = baseName.replace(/^@[^/]+\//, '').replace(/[^a-zA-Z0-9-]/g, '-');
+    
+    return `${cleanBaseName}-${timestamp}-${randomId}`;
+  }
+
+  async checkGitHubCLI() {
+    try {
+      execSync('gh --version', { stdio: 'ignore' });
+      return true;
+    } catch (error) {
+      console.error('❌ GitHub CLI (gh) is required but not installed.');
+      console.log('📋 Install it from: https://cli.github.com/');
+      return false;
+    }
+  }
+
+  async checkAuthentication() {
+    try {
+      // Check if authenticated with any GitHub instance
+      const result = execSync('gh auth status', { encoding: 'utf8', stdio: 'pipe' });
+      
+      // Extract hostname from auth status - must be enterprise (not github.com)
+      const hostnameMatch = result.match(/Logged in to ([^\s]+)/);
+      if (!hostnameMatch) {
+        throw new Error('Could not determine GitHub hostname from authentication');
+      }
+      
+      const hostname = hostnameMatch[1];
+      if (hostname === 'github.com') {
+        console.error('❌ This tool only works with GitHub Enterprise Server.');
+        console.log('🏢 Please authenticate with your GitHub Enterprise Server instance:');
+        console.log('   gh auth login --hostname your-enterprise-server.com');
+        return false;
+      }
+      
+      this.enterpriseHostname = hostname;
+      console.log(`🏢 Connected to GitHub Enterprise Server: ${this.enterpriseHostname}`);
+      
+      return true;
+    } catch (error) {
+      console.error('❌ Not authenticated with GitHub Enterprise Server.');
+      console.log('🔑 Please authenticate with your GitHub Enterprise Server instance:');
+      console.log('   gh auth login --hostname your-enterprise-server.com');
+      return false;
+    }
+  }
+
+  async ensureGitRepo() {
+    // We'll create a temporary git repo just for deployment
+    this.tempDir = path.join(os.tmpdir(), `gh-deploy-${Date.now()}`);
+    fs.mkdirSync(this.tempDir, { recursive: true });
+    
+    console.log('🔧 Setting up temporary deployment repository...');
+    execSync('git init', { cwd: this.tempDir });
+    
+    // Set up git config in temp directory
+    execSync('git config user.name "GitHub Deploy Bot"', { cwd: this.tempDir });
+    execSync('git config user.email "deploy@github.local"', { cwd: this.tempDir });
+    
+    // Add the remote to our temp directory - always enterprise
+    const hostname = this.config.hostname;
+    if (!hostname) {
+      throw new Error('No enterprise hostname configured');
+    }
+    
+    const repoUrl = `https://${hostname}/${this.config.username}/${this.config.repository}.git`;
+    execSync(`git remote add origin ${repoUrl}`, { cwd: this.tempDir });
+  }
+
+  getGitHubUsername() {
+    try {
+      const result = execSync('gh api user --jq .login', { encoding: 'utf8' }).trim();
+      return result;
+    } catch (error) {
+      throw new Error('Could not get GitHub username. Make sure you are authenticated with GitHub CLI.');
+    }
+  }
+
+  async buildProject() {
+    console.log(`🔨 Building project using: ${this.buildConfig.buildCommand}`);
+    
+    // Calculate the base path for GitHub Pages
+    const basePath = `/${this.config.repository}/${this.branchName}`;
+    
+    // Handle framework-specific base path configuration
+    await this.configureBasePath(basePath);
+    
+    try {
+      execSync(this.buildConfig.buildCommand, { 
+        cwd: this.cwd, 
+        stdio: 'inherit' 
+      });
+    } catch (error) {
+      throw new Error(`Build failed: ${error.message}`);
+    } finally {
+      // Restore original configuration
+      await this.restoreOriginalConfig();
+    }
+
+    // Verify build output exists
+    const outputPath = path.join(this.cwd, this.buildConfig.outputDir);
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(`Build output directory '${this.buildConfig.outputDir}' not found`);
+    }
+
+    console.log(`✅ Build completed. Output in: ${this.buildConfig.outputDir}`);
+  }
+
+  async configureBasePath(basePath) {
+    this.originalConfigs = {}; // Store original configs for restoration
+    
+    console.log(`🔧 Configuring base path: ${basePath}`);
+    
+    switch (this.buildConfig.framework) {
+      case 'next':
+        await this.configureNextJsBasePath(basePath);
+        break;
+      case 'vite':
+        await this.configureViteBasePath(basePath);
+        break;
+      case 'react':
+        await this.configureReactBasePath(basePath);
+        break;
+      default:
+        console.log('ℹ️  Generic project - you may need to manually configure asset paths');
+    }
+  }
+
+  async configureNextJsBasePath(basePath) {
+    const configFiles = ['next.config.js', 'next.config.ts', 'next.config.mjs'];
+    const configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
+    
+    if (configFile) {
+      // Read original config
+      const configPath = path.join(this.cwd, configFile);
+      const originalContent = fs.readFileSync(configPath, 'utf8');
+      this.originalConfigs[configFile] = originalContent;
+      
+      // Create modified config
+      const tempConfig = `/** @type {import('next').NextConfig} */
+const originalConfig = (() => {
+${originalContent.replace(/module\.exports\s*=/, 'return').replace(/export\s+default/, 'return')}
+})();
+
+const modifiedConfig = {
+  ...originalConfig,
+  output: 'export',
+  basePath: '${basePath}',
+  assetPrefix: '${basePath}',
+  trailingSlash: true,
+  images: {
+    ...originalConfig.images,
+    unoptimized: true
+  }
+};
+
+module.exports = modifiedConfig;`;
+      
+      fs.writeFileSync(configPath, tempConfig);
+      console.log(`📝 Temporarily modified ${configFile} for deployment`);
+    } else {
+      // Create temporary config
+      const tempConfig = `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: 'export',
+  basePath: '${basePath}',
+  assetPrefix: '${basePath}',
+  trailingSlash: true,
+  images: {
+    unoptimized: true
+  }
+};
+
+module.exports = nextConfig;`;
+      
+      fs.writeFileSync(path.join(this.cwd, 'next.config.js'), tempConfig);
+      this.originalConfigs['next.config.js'] = null; // Mark for deletion
+      console.log('📝 Created temporary next.config.js for deployment');
+    }
+  }
+
+  async configureViteBasePath(basePath) {
+    const configFiles = ['vite.config.js', 'vite.config.ts'];
+    let configFile = configFiles.find(file => fs.existsSync(path.join(this.cwd, file)));
+    
+    if (configFile) {
+      // Read original config
+      const configPath = path.join(this.cwd, configFile);
+      const originalContent = fs.readFileSync(configPath, 'utf8');
+      this.originalConfigs[configFile] = originalContent;
+      
+      // Modify existing config to add base path
+      let modifiedContent = originalContent;
+      
+      // Try to add base to existing config object
+      if (modifiedContent.includes('export default')) {
+        // Handle ES modules export
+        modifiedContent = modifiedContent.replace(
+          /export default\s+(?:defineConfig\s*\()?(\{[\s\S]*?\})(?:\))?/,
+          `export default defineConfig({
+  base: '${basePath}',
+  ...$1
+})`
+        );
+      } else {
+        // Handle CommonJS or other formats - inject base at the beginning
+        modifiedContent = modifiedContent.replace(
+          /(defineConfig\s*\(\s*\{)/,
+          `$1\n  base: '${basePath}',`
+        );
+      }
+      
+      // Ensure defineConfig is imported
+      if (!modifiedContent.includes('defineConfig')) {
+        modifiedContent = `import { defineConfig } from 'vite';\n${modifiedContent}`;
+      }
+      
+      fs.writeFileSync(configPath, modifiedContent);
+      console.log(`📝 Temporarily modified ${configFile} for deployment`);
+    } else {
+      // Create temporary config
+      const isTypeScript = fs.existsSync(path.join(this.cwd, 'tsconfig.json'));
+      configFile = isTypeScript ? 'vite.config.ts' : 'vite.config.js';
+      
+      const tempConfig = `import { defineConfig } from 'vite';
+
+export default defineConfig({
+  base: '${basePath}',
+  build: {
+    outDir: 'dist'
+  }
+});`;
+      
+      fs.writeFileSync(path.join(this.cwd, configFile), tempConfig);
+      this.originalConfigs[configFile] = null; // Mark for deletion
+      console.log(`📝 Created temporary ${configFile} for deployment`);
+    }
+  }
+
+  async configureReactBasePath(basePath) {
+    // For Create React App, we use the PUBLIC_URL environment variable
+    const envPath = path.join(this.cwd, '.env.local');
+    const envExists = fs.existsSync(envPath);
+    
+    if (envExists) {
+      const originalContent = fs.readFileSync(envPath, 'utf8');
+      this.originalConfigs['.env.local'] = originalContent;
+      
+      // Add or update PUBLIC_URL
+      let modifiedContent = originalContent;
+      if (modifiedContent.includes('PUBLIC_URL=')) {
+        modifiedContent = modifiedContent.replace(/PUBLIC_URL=.*$/m, `PUBLIC_URL=${basePath}`);
+      } else {
+        modifiedContent += `\nPUBLIC_URL=${basePath}\n`;
+      }
+      
+      fs.writeFileSync(envPath, modifiedContent);
+    } else {
+      // Create temporary .env.local
+      fs.writeFileSync(envPath, `PUBLIC_URL=${basePath}\n`);
+      this.originalConfigs['.env.local'] = null; // Mark for deletion
+    }
+    
+    console.log('📝 Temporarily set PUBLIC_URL for Create React App deployment');
+  }
+
+  async restoreOriginalConfig() {
+    if (!this.originalConfigs) return;
+    
+    console.log('🔄 Restoring original configuration files...');
+    
+    for (const [filename, originalContent] of Object.entries(this.originalConfigs)) {
+      const filePath = path.join(this.cwd, filename);
+      
+      if (originalContent === null) {
+        // File was created temporarily, delete it
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log(`🗑️  Removed temporary ${filename}`);
+        }
+      } else {
+        // File was modified, restore original
+        fs.writeFileSync(filePath, originalContent);
+        console.log(`↩️  Restored ${filename}`);
+      }
+    }
+    
+    this.originalConfigs = {};
+  }
+
+  async deployToGitHub() {
+    const outputPath = path.join(this.cwd, this.buildConfig.outputDir);
+    
+    console.log(`📦 Preparing deployment to branch: ${this.branchName}`);
+    
+    // Create orphan branch for this deployment
+    execSync(`git checkout --orphan ${this.branchName}`, { cwd: this.tempDir });
+    
+    // Copy build output to temp directory
+    this.copyDirectory(outputPath, this.tempDir);
+    
+    // Create .nojekyll for GitHub Pages
+    fs.writeFileSync(path.join(this.tempDir, '.nojekyll'), '');
+    
+    // Create a simple index redirect if no index.html exists
+    if (!fs.existsSync(path.join(this.tempDir, 'index.html'))) {
+      console.log('📄 No index.html found, creating redirect...');
+      const indexFiles = fs.readdirSync(this.tempDir).filter(f => f.endsWith('.html'));
+      if (indexFiles.length > 0) {
+        const redirectHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="0; url=${indexFiles[0]}">
+  <title>Redirecting...</title>
+</head>
+<body>
+  <p>Redirecting to <a href="${indexFiles[0]}">${indexFiles[0]}</a>...</p>
+</body>
+</html>`;
+        fs.writeFileSync(path.join(this.tempDir, 'index.html'), redirectHtml);
+      }
+    }
+    
+    // Add deployment info
+    const deployInfo = {
+      project: this.packageJson.name || 'Unknown',
+      deployedAt: new Date().toISOString(),
+      branch: this.branchName,
+      buildConfig: this.buildConfig.framework || 'generic'
+    };
+    fs.writeFileSync(path.join(this.tempDir, 'deploy-info.json'), JSON.stringify(deployInfo, null, 2));
+    
+    // Add and commit
+    execSync('git add .', { cwd: this.tempDir });
+    execSync(`git commit -m "Deploy ${this.packageJson.name || 'project'} - ${this.branchName}"`, { cwd: this.tempDir });
+    
+    console.log('📤 Pushing to GitHub...');
+    execSync(`git push -u origin ${this.branchName}`, { cwd: this.tempDir });
+  }
+
+  copyDirectory(src, dest) {
+    const items = fs.readdirSync(src);
+    
+    items.forEach(item => {
+      const srcPath = path.join(src, item);
+      const destPath = path.join(dest, item);
+      const stat = fs.statSync(srcPath);
+      
+      if (stat.isDirectory()) {
+        if (!fs.existsSync(destPath)) {
+          fs.mkdirSync(destPath, { recursive: true });
+        }
+        this.copyDirectory(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    });
+  }
+
+  async enableGitHubPages() {
+    console.log('📄 Setting up GitHub Enterprise Pages deployment...');
+    
+    try {
+      const hostname = this.config.hostname;
+      if (!hostname) {
+        throw new Error('No enterprise hostname configured');
+      }
+      
+      // Try to enable GitHub Pages via API if available
+      try {
+        execSync(`gh api repos/${this.config.username}/${this.config.repository}/pages -X POST -f source.branch=main -f source.path=/ --hostname ${hostname}`, {
+          cwd: this.tempDir,
+          stdio: 'ignore'
+        });
+      } catch (error) {
+        // Pages might already be enabled or API might not be available on this enterprise instance
+      }
+      
+      // Generate enterprise-specific URLs
+      const pagesUrl = `https://${hostname}/pages/${this.config.username}/${this.config.repository}/${this.branchName}/`;
+      const repoUrl = `https://${hostname}/${this.config.username}/${this.config.repository}/tree/${this.branchName}`;
+      
+      console.log('\n🎉 Deployment to GitHub Enterprise Server complete!');
+      console.log(`🏢 Enterprise Server: ${hostname}`);
+      console.log(`🔗 Your preview site: ${pagesUrl}`);
+      console.log(`🌿 Branch: ${this.branchName}`);
+      console.log(`📦 GitHub branch: ${repoUrl}`);
+      
+      console.log('\n📋 GitHub Enterprise Server Notes:');
+      console.log('• GitHub Pages URL structure may vary based on your enterprise configuration');
+      console.log('• Check with your administrator if the preview URL doesn\'t work');
+      console.log('• You may need to manually enable GitHub Pages in repository settings');
+      console.log('• Some enterprise instances have custom Pages domains');
+      
+      console.log('\n💡 Tip: Share the branch URL with colleagues who can access your enterprise server!');
+      
+      // Update local config with last deployment info
+      this.config.lastDeployment = {
+        branch: this.branchName,
+        url: pagesUrl,
+        deployedAt: new Date().toISOString(),
+        project: this.packageJson.name || 'Unknown',
+        hostname: hostname
+      };
+      this.saveConfig(this.config);
+      
+    } catch (error) {
+      const hostname = this.config.hostname;
+      const repoUrl = `https://${hostname}/${this.config.username}/${this.config.repository}/tree/${this.branchName}`;
+      
+      console.log('\n⚠️  GitHub Pages setup failed, but branch was created successfully');
+      console.log(`🏢 Enterprise Server: ${hostname}`);
+      console.log(`🌿 Branch: ${this.branchName}`);
+      console.log(`📦 GitHub branch: ${repoUrl}`);
+      console.log('🔧 Manually enable GitHub Pages in your enterprise repository settings');
+    }
+  }
+
+  async cleanup() {
+    // Clean up temporary directory
+    if (this.tempDir && fs.existsSync(this.tempDir)) {
+      try {
+        fs.rmSync(this.tempDir, { recursive: true, force: true });
+      } catch (error) {
+        console.log('⚠️  Could not clean up temporary files');
+      }
+    }
+  }
+
+  async deploy() {
+    try {
+      console.log('🚀 Starting GitHub Pages deployment...\n');
+      
+      // Pre-flight checks
+      if (!(await this.checkGitHubCLI())) return;
+      if (!(await this.checkAuthentication())) return;
+      
+      // Check/setup configuration
+      if (!this.config) {
+        this.config = await this.setupConfig();
+      } else {
+        console.log(`📂 Using deployment repository: ${this.config.username}/${this.config.repository}`);
+      }
+      
+      // Setup
+      await this.ensureGitRepo();
+      
+      // Build and deploy
+      await this.buildProject();
+      await this.deployToGitHub();
+      await this.enableGitHubPages();
+      
+    } catch (error) {
+      console.error('❌ Deployment failed:', error.message);
+      process.exit(1);
+    } finally {
+      await this.cleanup();
+    }
+  }
+}
+
+// CLI interface
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  
+  if (args.includes('--config') || args.includes('-c')) {
+    // Configuration management
+    const deployer = new GitHubPagesDeployer();
+    
+    if (args.includes('--show')) {
+      console.log('📋 Current configuration:');
+      if (deployer.config) {
+        console.log(JSON.stringify(deployer.config, null, 2));
+      } else {
+        console.log('No configuration found. Run without --config to set up.');
+      }
+    } else if (args.includes('--reset')) {
+      if (fs.existsSync(deployer.configPath)) {
+        fs.unlinkSync(deployer.configPath);
+        console.log('🗑️  Configuration reset. Run the command again to set up a new configuration.');
+      } else {
+        console.log('No configuration file found.');
+      }
+    } else {
+      deployer.setupConfig().then(() => {
+        console.log('✅ Configuration updated successfully!');
+      }).catch(error => {
+        console.error('❌ Configuration setup failed:', error.message);
+        process.exit(1);
+      });
+    }
+  } else if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+GitHub Pages Auto Deploy
+
+Usage:
+  gh-deploy                Deploy current project
+  gh-deploy --config       Set up or update configuration
+  gh-deploy --config --show   Show current configuration
+  gh-deploy --config --reset  Reset configuration
+  gh-deploy --help         Show this help
+
+Configuration is stored in: ~/.ghd-config.json
+
+First run will automatically prompt for configuration setup.
+`);
+  } else {
+    // Normal deployment
+    const deployer = new GitHubPagesDeployer();
+    deployer.deploy();
+  }
+}
+
+module.exports = GitHubPagesDeployer;
