@@ -487,8 +487,8 @@ This repository is configured for GitHub Enterprise Server: ${hostname}
   async buildProject() {
     console.log(`🔨 Building project using: ${this.buildConfig.buildCommand}`);
     
-    // Calculate the base path for GitHub Pages
-    const basePath = `/${this.config.repository}/${this.branchName}`;
+    // Calculate the base path for GitHub Pages (just repository name, no branch)
+    const basePath = `/${this.config.repository}`;
     
     // Handle framework-specific base path configuration
     await this.configureBasePath(basePath);
@@ -517,17 +517,19 @@ This repository is configured for GitHub Enterprise Server: ${hostname}
   async configureBasePath(basePath) {
     this.originalConfigs = {}; // Store original configs for restoration
     
-    console.log(`🔧 Configuring base path: ${basePath}`);
+    // For enterprise with single Pages per repo, base path is just the repo name
+    const repoBasePath = `/${this.config.repository}`;
+    console.log(`🔧 Configuring base path: ${repoBasePath}`);
     
     switch (this.buildConfig.framework) {
       case 'next':
-        await this.configureNextJsBasePath(basePath);
+        await this.configureNextJsBasePath(repoBasePath);
         break;
       case 'vite':
-        await this.configureViteBasePath(basePath);
+        await this.configureViteBasePath(repoBasePath);
         break;
       case 'react':
-        await this.configureReactBasePath(basePath);
+        await this.configureReactBasePath(repoBasePath);
         break;
       default:
         console.log('ℹ️  Generic project - you may need to manually configure asset paths');
@@ -871,8 +873,8 @@ export default defineConfig({
         }
       }
       
-      // Generate enterprise-specific URLs
-      const pagesUrl = `https://${hostname}/pages/${this.config.username}/${this.config.repository}/${this.branchName}/`;
+      // Generate enterprise-specific URLs (no branch name in URL for single-pages setup)
+      const pagesUrl = `https://${hostname}/pages/${this.config.username}/${this.config.repository}/`;
       const repoUrl = `https://${hostname}/${this.config.username}/${this.config.repository}/tree/${this.branchName}`;
       
       console.log('\n🎉 Deployment to GitHub Enterprise Server complete!');
@@ -882,12 +884,13 @@ export default defineConfig({
       console.log(`📦 GitHub branch: ${repoUrl}`);
       
       console.log('\n📋 GitHub Enterprise Server Notes:');
-      console.log('• GitHub Pages URL structure may vary based on your enterprise configuration');
+      console.log('• GitHub Pages serves from the active branch (one Pages site per repository)');
+      console.log('• The Pages URL does not include the branch name');
+      console.log('• Each deployment switches the Pages source to the new branch');
+      console.log('• Previous deployments remain as branches but are not served');
       console.log('• Check with your administrator if the preview URL doesn\'t work');
-      console.log('• You may need to manually enable GitHub Pages in repository settings');
-      console.log('• Some enterprise instances have custom Pages domains');
       
-      console.log('\n💡 Tip: Share the branch URL with colleagues who can access your enterprise server!');
+      console.log('\n💡 Tip: Share the Pages URL with colleagues who can access your enterprise server!');
       
       // Update local config with last deployment info
       this.config.lastDeployment = {
