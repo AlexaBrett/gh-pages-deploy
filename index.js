@@ -752,18 +752,24 @@ export default defineConfig({
   async handleEnvironmentConfig() {
     console.log('🔧 Checking for environment configuration...');
     
-    // Check if env-content-* folders exist
-    const envDirs = fs.readdirSync(this.cwd).filter(dir => 
-      dir.startsWith('env-content-') && 
-      fs.statSync(path.join(this.cwd, dir)).isDirectory()
-    );
-    
-    if (envDirs.length === 0) {
-      console.log('ℹ️  No env-content-* directories found, skipping config replacement');
+    // Check if env folder exists
+    const envBasePath = path.join(this.cwd, 'env');
+    if (!fs.existsSync(envBasePath) || !fs.statSync(envBasePath).isDirectory()) {
+      console.log('ℹ️  No env directory found, skipping config replacement');
       return;
     }
     
-    console.log(`📁 Found environment directories: ${envDirs.join(', ')}`);
+    // Check what folders are in the env directory
+    const envDirs = fs.readdirSync(envBasePath).filter(dir => 
+      fs.statSync(path.join(envBasePath, dir)).isDirectory()
+    );
+    
+    if (envDirs.length === 0) {
+      console.log('ℹ️  No directories found in env folder, skipping config replacement');
+      return;
+    }
+    
+    console.log(`📁 Found environment directories in env/: ${envDirs.join(', ')}`);
     
     // Get the previously used environment for this project
     const lastUsedEnv = this.getLastEnvironment();
@@ -784,16 +790,16 @@ export default defineConfig({
       return;
     }
     
-    // Validate the selected directory exists
-    const envPath = path.join(this.cwd, selectedEnv);
+    // Validate the selected directory exists in env/
+    const envPath = path.join(envBasePath, selectedEnv);
     if (!fs.existsSync(envPath) || !fs.statSync(envPath).isDirectory()) {
-      throw new Error(`Environment directory '${selectedEnv}' does not exist`);
+      throw new Error(`Environment directory 'env/${selectedEnv}' does not exist`);
     }
     
     // Check if config.js exists in the selected directory
     const configSourcePath = path.join(envPath, 'config.js');
     if (!fs.existsSync(configSourcePath)) {
-      throw new Error(`config.js not found in '${selectedEnv}' directory`);
+      throw new Error(`config.js not found in 'env/${selectedEnv}' directory`);
     }
     
     // Check if config.js exists in the build output
@@ -804,7 +810,7 @@ export default defineConfig({
     
     // Replace the config.js file
     fs.copyFileSync(configSourcePath, configDestPath);
-    console.log(`✅ Replaced config.js with version from '${selectedEnv}'`);
+    console.log(`✅ Replaced config.js with version from 'env/${selectedEnv}'`);
     
     // Save the selected environment for future use in this project
     this.saveLastEnvironment(selectedEnv);
